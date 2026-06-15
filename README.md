@@ -11,12 +11,10 @@ write: by predicting the next token.
 A click-through walkthrough of exactly how Jamna works — embeddings, attention, softmax,
 and the weights adjusting as she trains — all with real, trained numbers.
 
-## Run it
+## Build
 
-```bash
-mvn -q exec:java                                    # train, then chat with Jamna
-java -cp target/classes com.jamna.nn.Jamna chat     # or load the trained model and chat
-```
+Compiled, tested and built by **GitHub Actions** on every push — see the
+[**Actions** tab](https://github.com/vishnu-vardhan-d/jamna.nn/actions) (`mvn test`).
 
 ## License
 
