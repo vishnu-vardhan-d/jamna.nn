@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jamna — how a Mini LLM Engine works</title>
+<style>
+  :root{--bg:#faf9f7;--card:#fff;--ink:#211f1c;--muted:#6c6760;--line:#e7e3dc;
+        --accent:#3b5bdb;--green:#2f9e44;--amber:#e8920c;--gray:#aeb4ba;--purple:#6741d9;--blue:#1c7ed6}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+  .wrap{max-width:820px;margin:0 auto;padding:26px 20px 60px}
+  .hd{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
+  h1{font-size:25px;margin:0;font-weight:650}
+  .tag{color:var(--muted);font-size:14px}
+  .stage{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;margin-top:16px;min-height:430px}
+  .num{display:inline-block;font-size:12px;font-weight:600;color:var(--purple);background:#f0ecfb;padding:3px 10px;border-radius:20px;margin-bottom:6px}
+  h2{font-size:22px;margin:6px 0 4px;font-weight:620}
+  .what{font-size:16.5px;margin:10px 0 4px}
+  .why{font-size:15px;color:var(--muted);margin:4px 0 14px}
+  .why b,.what b{color:var(--ink)}
+  .viz{margin-top:14px}
+  .cells{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .cell{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:600;border:2px solid var(--line);background:#fff;transition:.3s}
+  .cell.in{background:#f3f1ec;color:#5b574f;border-color:#cfcabf}
+  .cell.out{background:#eafaef;color:#1c6b2c;border-color:var(--green)}
+  .cell.pend{border-style:dashed;color:#cbc6bd}
+  .cell.live{background:#e7f0ff;color:var(--blue);border-color:var(--blue);transform:translateY(-4px)}
+  .arrow{color:#c3bdb2;font-size:22px}
+  .vbox{min-width:46px;height:30px;padding:0 6px;border-radius:7px;background:#eef2ff;border:1px solid #cdd9f7;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;color:#34508f}
+  .lbl{font-size:13px;color:var(--muted)}
+  .dbtn{width:34px;height:34px;border-radius:8px;border:1px solid var(--line);background:#fff;font-size:15px;font-weight:600;cursor:pointer;color:var(--ink)}
+  .dbtn.on{background:#e7f0ff;border-color:var(--blue);color:var(--blue)}
+  .bars{display:flex;gap:8px;align-items:flex-end;height:120px;margin:6px 0 22px}
+  .bar{width:40px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:6px 6px 0 0;position:relative;transition:height .4s}
+  .bar.hot{background:#dbe7ff;border-color:#7aa2f0}
+  .bar span{position:absolute;bottom:-22px;left:0;right:0;text-align:center;font-size:12px;color:var(--muted)}
+  .flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px}
+  .chip{padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+  .chip.p{border-left:4px solid var(--purple)}
+  .chip.g{border-left:4px solid var(--green)}
+  .chip.on{background:#e7f0ff;border-color:var(--blue);color:var(--blue)}
+  .stk{display:flex;flex-direction:column;gap:6px}
+  .blockbox{border:1px solid var(--line);border-left:4px solid var(--purple);border-radius:10px;padding:8px 12px;background:#fbfaf8;font-size:14px}
+  canvas{width:100%;height:150px;display:block;margin-top:8px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  td,th{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted)}
+  code{background:#f1efe9;padding:1px 6px;border-radius:5px;font-size:13px}
+  .controls{display:flex;align-items:center;gap:10px;margin-top:16px;flex-wrap:wrap}
+  button.nav{font-size:15px;padding:9px 16px;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:10px;cursor:pointer;font-weight:550}
+  button.nav.ghost{background:#fff;color:var(--accent)}
+  button.nav:disabled{opacity:.4;cursor:default}
+  .dots{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+  .dot{width:9px;height:9px;border-radius:50%;background:#dcd8cf;cursor:pointer}
+  .dot.on{background:var(--accent)}
+  .count{font-size:13px;color:var(--muted)}
+  button.act{font-size:15px;padding:9px 16px;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:10px;cursor:pointer;font-weight:550}
+  button.act.ghost{background:#fff;color:var(--accent)}
+  .mathbox{margin-top:16px;border:1px solid var(--line);border-radius:12px;background:#fbfaf8;padding:0 16px}
+  .mathbox summary{cursor:pointer;padding:13px 0;font-weight:600;color:var(--accent);font-size:15px;list-style:none}
+  .mathbox summary::-webkit-details-marker{display:none}
+  .mathbox summary:before{content:'\25B8  ';color:var(--accent)}
+  .mathbox[open] summary:before{content:'\25BE  '}
+  .mathin{font-size:14.5px;line-height:1.85;padding:2px 0 16px}
+  .glossary{margin-top:26px}
+  .glossary h2{font-size:20px;margin:0 0 4px}
+  .gcat{font-size:12px;font-weight:600;color:var(--purple);background:#f0ecfb;display:inline-block;padding:3px 10px;border-radius:20px;margin:18px 0 8px}
+  .term{margin:11px 0;font-size:15px}
+  .term span{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd">
+    <h1>Jamna</h1>
+    <span class="tag">a Mini LLM Engine from Scratch in Java — visual walkthrough</span>
+  </div>
+
+  <div class="stage" id="stage"></div>
+
+  <div class="controls">
+    <button class="nav ghost" id="prev">&larr; Prev</button>
+    <button class="nav" id="next">Next &rarr;</button>
+    <button class="nav ghost" id="auto">&#9654; Auto-play</button>
+    <span class="count" id="count"></span>
+    <span class="dots" id="dots"></span>
+  </div>
+
+  <div class="glossary">
+    <h2>Glossary — what each word means</h2>
+    <p class="tag">Plain-English definitions. (The math derivations live in the &ldquo;Show the math&rdquo; panel on each slide above.)</p>
+    <div class="gcat">the data</div>
+    <div class="term"><b>Token</b> — <span>the smallest unit the model reads/writes. Here one digit; in a chatbot, a chunk of a word.</span></div>
+    <div class="term"><b>Vector / embedding</b> — <span>a digit&#8217;s &ldquo;name tag&rdquo;: a private list of 48 numbers that describes that one digit. Each digit 0–9 has its own.</span></div>
+    <div class="term"><b>Weight / parameter</b> — <span>one adjustable number (knob) inside the model. Learning = finding good values for all ~80,000.</span></div>
+    <div class="gcat">the network</div>
+    <div class="term"><b>Dot product</b> — <span>multiply two lists slot-by-slot and add; one number for how well they match.</span></div>
+    <div class="term"><b>Attention</b> — <span>the model looking at all the numbers at once and focusing on the ones it needs right now (built on dot products + softmax).</span></div>
+    <div class="term"><b>Softmax</b> — <span>turns scores into percentages that add to 1 (raise e to each, then divide by the total).</span></div>
+    <div class="term"><b>LayerNorm</b> — <span>rescales a row of numbers to a steady size so training stays smooth.</span></div>
+    <div class="term"><b>ReLU</b> — <span>keep positives, turn negatives into 0. Adds the bend that lets it learn curves.</span></div>
+    <div class="term"><b>Residual</b> — <span>add a layer&#8217;s input back onto its output, so nothing is lost.</span></div>
+    <div class="gcat">learning</div>
+    <div class="term"><b>Loss / error</b> — <span>one number for how wrong the model is. Smaller is better.</span></div>
+    <div class="term"><b>Gradient</b> — <span>how fast the error changes when you nudge a weight (change-in-error ÷ change-in-weight) — a slope telling you which way is downhill.</span></div>
+    <div class="term"><b>Self-supervised</b> — <span>the training data is its own answer: the target at each spot is just the actual next token in the sequence. No human-written answer keys.</span></div>
+    <div class="term"><b>Backprop</b> — <span>the efficient method that computes every weight&#8217;s gradient in one backward sweep (the chain rule).</span></div>
+    <div class="term"><b>Learning rate</b> — <span>how big a step to take downhill each update.</span></div>
+  </div>
+</div>
+
+<script>
+var inp=[5,2,8,1,2,0], srt=inp.slice().sort(function(a,b){return a-b});
+function box(v){return '<div class="cell '+v[1]+'">'+v[0]+'</div>'}
+
+/* ---- digit name-tag table (interactive) ---- */
+var embSel=5;
+function tagNums(d){ var a=[]; for(var i=0;i<8;i++){ a.push((((d*7+i*13)%19)/10 - 0.9).toFixed(2)); } return a; }
+function renderEmb(){
+  var vals=tagNums(embSel);
+  var cells=vals.map(function(v,i){return '<div style="text-align:center"><div class="vbox">'+v+'</div><div style="font-size:10px;color:#b9b4aa;margin-top:3px">#'+(i+1)+'</div></div>';}).join('');
+  return '<div style="font-size:14px;margin-bottom:8px">name tag for <b>digit '+embSel+'</b> &mdash; 8 of its 48 private numbers:</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+cells+'</div>'
+    +'<div class="why" style="margin-top:12px">These numbers belong to <b>digit '+embSel+' only</b>. They are <b>not</b> its value and <b>not</b> a place in the sorted list &mdash; just a description the model invents. Notice every digit shows a different set.</div>';
+}
+function selectDigit(d){ embSel=d; var a=document.getElementById('embarea'); if(a)a.innerHTML=renderEmb();
+  var bs=document.querySelectorAll('.dbtn'); bs.forEach(function(b){b.classList.toggle('on', +b.dataset.d===d)}); }
+function embedUI(){
+  var btns=''; for(var d=0;d<10;d++){ btns+='<button class="dbtn'+(d===embSel?' on':'')+'" data-d="'+d+'" onclick="selectDigit('+d+')">'+d+'</button>'; }
+  return '<div style="font-size:13px;color:var(--muted);margin-bottom:8px">click a digit to see its own name tag:</div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">'+btns+'</div>'
+    +'<div id="embarea">'+renderEmb()+'</div>';
+}
+
+var ATT="<b>How attention actually computes the focus &mdash; fully worked.</b> To do every number by hand we shrink each vector to <b>2 numbers</b> (instead of 48) and use <b>2 inputs</b> (instead of 6).<br><br>The two inputs (a digit&#8217;s vector after the position step):<br>&nbsp;&nbsp;x&#8321; = [1.00, 0.40], &nbsp; x&#8322; = [0.20, 0.90].<br><br><b>1) Make a Query, Key, Value for each</b> by multiplying by small learned matrices. With Wq = [[0.90, 0.10],[0.20, 0.80]]:<br>&nbsp;&nbsp;q&#8321; = [1.00&times;0.90 + 0.40&times;0.20, &nbsp;1.00&times;0.10 + 0.40&times;0.80] = [0.98, 0.42]<br>Same idea gives keys k&#8321; = [0.86, 0.54], k&#8322; = [0.5, 0.6], and values v&#8321; = [1.00, 0.40], v&#8322; = [0.20, 0.90].<br><br><b>2) Score how well the query matches each key</b> (dot product &divide; &radic;2):<br>&nbsp;&nbsp;to x&#8321;: (0.98&times;0.86 + 0.42&times;0.54) &divide; 1.41 = <b>0.76</b><br>&nbsp;&nbsp;to x&#8322;: (0.98&times;0.5 + 0.42&times;0.6) &divide; 1.41 = <b>0.52</b><br><br><b>3) Softmax the scores</b> into focus weights (the e^x rule from step 7):<br>&nbsp;&nbsp;e^0.76 = 2.14, &nbsp;e^0.52 = 1.68, &nbsp;total = 3.82<br>&nbsp;&nbsp;focus = [0.56, 0.44] &nbsp;(adds to 1)<br><br><b>4) Blend the values</b> by those weights &mdash; the output for this position:<br>&nbsp;&nbsp;out = 0.56&times;[1.00, 0.40] + 0.44&times;[0.20, 0.90] = [0.65, 0.62]<br><br>That output vector flows into the next step. During training the matrices Wq/Wk get tuned so the query effectively &lsquo;asks for the smallest&rsquo; and the matching key wins the focus.";
+
+var SOFT="<b>Goal: turn scores into percentages that add to 100%</b>, bigger score &rarr; bigger slice. For scores [2, 1, 0]:<br><br>"
++"&nbsp;&nbsp;Step 1 &mdash; make each positive by raising <b>e</b> (&asymp; 2.718) to it (always positive): &nbsp;e^2 &asymp; 7.39, e^1 &asymp; 2.72, e^0 = 1<br>"
++"&nbsp;&nbsp;Step 2 &mdash; add them (the whole pie): &nbsp;7.39 + 2.72 + 1 = <b>11.11</b><br>"
++"&nbsp;&nbsp;Step 3 &mdash; each slice = value &divide; pie: &nbsp;7.39&divide;11.11 &asymp; <b>0.67</b>, 2.72&divide;11.11 &asymp; <b>0.24</b>, 1&divide;11.11 &asymp; <b>0.09</b><br>"
++"&nbsp;&nbsp;Check: 0.67 + 0.24 + 0.09 = 1.00 &#10003;<br><br>"
++"<b>Why e?</b> It makes everything positive and makes bigger scores pull ahead faster. (&pi; is for circles, not used here.) Reminder: e^2 just means 2.718 &times; 2.718.";
+
+var REFINE="<b>Problem:</b> a row of numbers can get too big or spread out, making learning wobbly. <b>LayerNorm</b> resets each row to a standard size. On row [4, 6, 8]:<br><br>"
++"&nbsp;&nbsp;Step 1 &mdash; average: (4 + 6 + 8) &divide; 3 = <b>6</b><br>"
++"&nbsp;&nbsp;Step 2 &mdash; subtract it so the average is 0: [&minus;2, 0, 2]<br>"
++"&nbsp;&nbsp;Step 3 &mdash; typical size: square (4, 0, 4), average (&asymp; 2.67), square root (&asymp; <b>1.63</b>)<br>"
++"&nbsp;&nbsp;Step 4 &mdash; divide by it: [&minus;1.23, 0, 1.23]<br><br>"
++"Now every row has the same gentle scale, however big it started.<br><br>"
++"<b>ReLU</b> (used right after) is the simplest rule: negatives become 0, positives stay. ReLU(&minus;2)=0, ReLU(3)=3.";
+
+var LEARN="<b>Your question first: is the gradient just the error difference?</b> Almost &mdash; it is the error difference <b>divided by how much you nudged the weight</b>, which makes it a <i>slope</i> (how fast the error changes per unit of weight). Let us compute one by hand.<br><br>"
++"Say for one weight w the error is error = (w &minus; 3)&sup2; (smallest at w = 3; the model does not know that yet).<br><br>"
++"&nbsp;&nbsp;Step 1 &mdash; error where we are: w = 5 &rarr; (5&minus;3)&sup2; = <b>4.00</b><br>"
++"&nbsp;&nbsp;Step 2 &mdash; nudge w by +0.1 and re-measure: w = 5.1 &rarr; (5.1&minus;3)&sup2; = <b>4.41</b><br>"
++"&nbsp;&nbsp;Step 3 &mdash; gradient = change in error &divide; change in w = (4.41 &minus; 4.00) &divide; 0.1 = 0.41 &divide; 0.1 = <b>&asymp; 4</b><br>"
++"&nbsp;&nbsp;&nbsp;&nbsp;Positive &rarr; raising w worsens the error &rarr; go the other way (down).<br>"
++"&nbsp;&nbsp;Step 4 &mdash; step downhill by a fraction of it (learning rate 0.1): new w = 5 &minus; 0.1&times;4 = <b>4.6</b><br>"
++"&nbsp;&nbsp;Step 5 &mdash; check: (4.6&minus;3)&sup2; = <b>2.56</b>, down from 4. It worked.<br><br>"
++"<b>So a gradient is an error difference turned into a slope.</b> Repeat and w slides to 3, where nudging it barely changes the error (gradient &asymp; 0) &mdash; the bottom of the valley.<br><br>"
++"<b>How the real model gets it fast:</b> nudging 80,000 weights one-by-one would be far too slow, so <b>backprop</b> (the chain rule) computes every gradient in one backward sweep &mdash; same answer, all at once. That sweep is exactly what class T does in the Java.";
+
+var steps=[
+ {n:'the goal',t:'Jamna sorts six numbers',
+  what:'Give it six digits in any order; it returns them smallest-to-largest. Nobody hand-codes a sorting rule &mdash; it learns one.',
+  why:'Sorting is a task where you can <b>watch the whole engine</b> and instantly check right or wrong. The same machinery powers a chatbot.',
+  viz:function(){return '<div class="cells">'+inp.map(function(v){return box([v,'in'])}).join('')+'<span class="arrow">&rarr;</span>'+srt.map(function(v){return box([v,'out'])}).join('')+'</div>';}},
+
+ {n:'step 1 · name tags',t:'Each digit gets its own list of numbers',
+  what:'The model cannot do math on the symbol &ldquo;5&rdquo;, so each digit is given its own <b>name tag</b>: a private list of 48 numbers (called its <i>embedding</i>). Digit 5 has its 48; digit 2 has a different 48; and so on for all ten digits.',
+  why:'<b>Important:</b> a single number here is not the digit&#8217;s value or its rank. But here is the satisfying part &mdash; after training, these tags arrange the ten digits <b>by size</b>: 0&#8217;s tag and 9&#8217;s tag end up far apart, while neighbours like 4 and 5 end up close. That learned ordering is exactly what lets the model <b>compare</b> two digits and tell which is smaller &mdash; which is how it sorts. Click each digit to see it has its own tag.',
+  math:"<b>No formula &mdash; it is a lookup.</b> The table has one row per digit. To use digit 5, take row 5. Shortened to 2 numbers: row 5 = [0.90, 0.40]. Those two numbers ARE digit 5&#8217;s vector. (The real table has 48 numbers per row; we show 2 so the later steps fit by hand.)",
+  viz:function(){return embedUI()+'<hr style="border:none;border-top:1px solid var(--line);margin:18px 0"><div style="font-size:14px;margin-bottom:8px"><b>Watch the tags learn the order.</b> They start scrambled; training slides them into 0&hellip;9 by size &mdash; which is what makes comparing (and sorting) possible.</div><div id="numline" style="position:relative;height:44px;margin:8px 0 6px"></div><div id="orderinfo" style="font-size:14px;font-weight:600;margin-bottom:10px"></div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="act" id="ord1">train one step</button><button class="act ghost" id="ordauto">&#9654; auto-run</button><button class="act ghost" id="ordreset">scramble</button></div>';},
+  enter:function(){ var p=[],it=0,i; for(i=0;i<10;i++)p.push(Math.random());
+    var line=document.getElementById('numline'), info=document.getElementById('orderinfo');
+    function inorder(){ var idx=[0,1,2,3,4,5,6,7,8,9].sort(function(a,b){return p[a]-p[b];}); for(var j=0;j<10;j++) if(idx[j]!==j) return false; return true; }
+    function render(){ line.innerHTML=[0,1,2,3,4,5,6,7,8,9].map(function(d){ var x=Math.max(0,Math.min(1,p[d])); return '<div style="position:absolute;left:'+(x*92)+'%;transition:left .3s"><div class="cell in" style="width:34px;height:34px;font-size:15px">'+d+'</div></div>'; }).join(''); info.innerHTML = inorder() ? 'iteration '+it+': tags are in order 0&hellip;9 &rarr; <span style="color:#1c6b2c"><b>now any two digits can be compared &#10003;</b></span>' : 'iteration '+it+': tags still scrambled &mdash; <span style="color:#a3331f">cannot compare reliably yet</span>'; }
+    function step(){ it++; for(var d=0;d<10;d++){ p[d]=p[d]+0.18*(d/9-p[d])+(Math.random()-0.5)*0.02; } render(); }
+    document.getElementById('ord1').onclick=step;
+    document.getElementById('ordreset').onclick=function(){ for(var d=0;d<10;d++)p[d]=Math.random(); it=0; render(); };
+    var ab=document.getElementById('ordauto');
+    ab.onclick=function(){ if(window.__trainIV){clearInterval(window.__trainIV);window.__trainIV=null;ab.innerHTML='&#9654; auto-run';} else { ab.innerHTML='&#10073;&#10073; pause'; window.__trainIV=setInterval(function(){ if(inorder()&&it>3){clearInterval(window.__trainIV);window.__trainIV=null;ab.innerHTML='&#9654; auto-run';return;} step(); },340); } };
+    render();
+  }},
+
+ {n:'step 2 · order',t:'Give each digit its place in the line',
+  what:'Our input is a line of six digits: <b>5 2 8 1 2 0</b>. On its own, the attention step coming next sees them as an <b>unordered pile</b> &mdash; it cannot tell the digit in spot 1 from the digit in spot 5. For sorting, that breaks two things.',
+  why:'<b>Duplicates:</b> our example has two 2s. With no position they look identical, so the model could not keep track of &ldquo;I already placed one 2, now place the other.&rdquo; <b>Knowing where you are:</b> the model writes the sorted answer one digit at a time, right after the inputs &mdash; so it must know which spot it is filling now (the 1st output digit? the 4th?). The fix: before attention, stamp each digit with its spot number. Now even the two 2s become two different things.',
+  math:"<b>Just an addition.</b> Take digit 5&#8217;s vector [0.90, 0.40] and add the &lsquo;spot 1&rsquo; vector [0.10, 0.00], number by number:<br>&nbsp;&nbsp;[0.90 + 0.10, &nbsp;0.40 + 0.00] = [1.00, 0.40]<br>That sum (this is the x&#8321; used in the attention step) is what flows onward. The same digit in a different spot adds a different vector, so it comes out different.",
+  viz:function(){ return '<div style="font-size:13px;color:var(--muted);margin-bottom:6px">without position &mdash; a pile; the two 2s are indistinguishable:</div>'
+    +'<div class="cells" style="margin-bottom:18px">'+inp.map(function(v){return '<div class="cell in">'+v+'</div>';}).join('')+'</div>'
+    +'<div style="font-size:13px;color:var(--muted);margin-bottom:6px">with a spot number &mdash; every digit is distinct now, including each 2:</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+inp.map(function(v,i){return '<div style="text-align:center"><div class="cell in">'+v+'</div><div style="font-size:11px;color:var(--blue);margin-top:3px">spot '+(i+1)+'</div></div>';}).join('')+'</div>'; }},
+
+ {n:'step 3 · attention',t:'Focusing on the number it needs',
+  what:'In one pass, the trained model picks the next number by spreading its <b>focus</b> across the six inputs and taking the one it focuses on most. Choosing the first output (which must be the smallest), almost all its focus lands on the <b>0</b>.',
+  why:'This focus is not a built-in rule &mdash; the model <b>learned</b> it. Flip the toggle: before training the focus is random and it picks the wrong number; after training it lands on 0. <b>Step 9 shows that correction happening, iteration by iteration.</b>',
+  math:ATT,
+  viz:function(){ return '<div style="font-size:14px;margin-bottom:8px">focus while choosing the first sorted number, for input <b>5 2 8 1 2 0</b>:</div>'
+    +'<div id="att3" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px"></div>'
+    +'<div id="att3v" style="font-size:15px;font-weight:600;margin-bottom:12px"></div>'
+    +'<button class="act ghost" id="att3btn"></button>'; },
+  enter:function(){ var trained=true, digits=[5,2,8,1,2,0];
+    var WT={ 't':[0.05,0.10,0.03,0.22,0.10,0.50], 'u':[0.18,0.15,0.24,0.12,0.16,0.15] };
+    function pick(arr){var mi=0;for(var i=1;i<arr.length;i++)if(arr[i]>arr[mi])mi=i;return mi;}
+    function draw(){ var wt=WT[trained?'t':'u'], win=pick(wt);
+      document.getElementById('att3').innerHTML=digits.map(function(d,i){ var hot=(i===win);
+        var bg=hot?(trained?'#cde6d4':'#f3d2cb'):'#eef2ff', bd=hot?(trained?'#2f9e44':'#c0492f'):'#c7d2fe', pct=hot?(trained?'#1c6b2c':'#a3331f'):'var(--muted)';
+        return '<div style="text-align:center;width:56px"><div style="font-size:12px;color:'+pct+';margin-bottom:4px">'+Math.round(wt[i]*100)+'%</div><div style="height:90px;display:flex;align-items:flex-end;justify-content:center"><div style="width:28px;height:'+(wt[i]*100)+'%;background:'+bg+';border:1px solid '+bd+';border-radius:6px 6px 0 0"></div></div><div class="cell '+(hot&&trained?'out':'in')+'" style="margin:6px auto 0;'+((hot&&!trained)?'border-color:#c0492f;color:#a3331f':'')+'">'+d+'</div></div>'; }).join('');
+      var wd=digits[win];
+      document.getElementById('att3v').innerHTML= trained ? 'after training: focuses on <b>0</b> &rarr; <span style="color:#1c6b2c">picks 0, correct &#10003;</span>' : 'before training: focuses on <b>'+wd+'</b> &rarr; <span style="color:#a3331f">picks '+wd+', wrong &#10007;</span>';
+      document.getElementById('att3btn').textContent= trained ? 'rewind to before training' : 'show after training';
+    }
+    document.getElementById('att3btn').onclick=function(){ trained=!trained; draw(); };
+    draw();
+  }},
+
+ {n:'step 4 · many heads',t:'Several viewpoints at once',
+  what:'The model runs several attention &ldquo;heads&rdquo; in parallel (Jamna uses 4) and joins their results.',
+  why:'One look is limiting; multiple heads can track different things at once &mdash; like the smallest-so-far and what has already been placed.',
+  viz:function(){var out='';for(var k=0;k<4;k++){var bars='';for(var i=0;i<6;i++){var v=Math.random()*0.8+0.1;bars+='<div class="bar" style="width:14px;height:'+(v*70)+'%"></div>';}out+='<div><div class="lbl">head '+(k+1)+'</div><div class="bars" style="height:70px">'+bars+'</div></div>';}return '<div style="display:flex;gap:18px;flex-wrap:wrap">'+out+'</div>';}},
+
+ {n:'step 5 · refine + shortcuts',t:'Feed-forward, residual, and layernorm',
+  what:'After attention, a small network polishes each number on its own. A <i>residual</i> adds the input back, and <i>layernorm</i> keeps the numbers tame.',
+  why:'The refine step adds thinking power; the <b>shortcut</b> means nothing is lost; layernorm <b>keeps training stable</b>.',
+  math:REFINE,
+  viz:function(){return '<div class="flow"><span class="chip">x</span><span class="arrow">&rarr;</span><span class="chip p">layernorm</span><span class="arrow">&rarr;</span><span class="chip p">feed-forward</span><span class="arrow">&rarr;</span><span class="chip g">+ add x back</span></div>';}},
+
+ {n:'step 6 · stack it',t:'Repeat the block for depth',
+  what:'Attention + feed-forward together make one block. Jamna stacks 2 (big models stack dozens).',
+  why:'<b>Each block adds reasoning.</b> Early blocks notice simple things; later blocks combine them into the real rule.',
+  viz:function(){return '<div class="stk">'+['input numbers','block 1 (attention + feed-forward)','block 2 (attention + feed-forward)','final scores'].map(function(s,i){return '<div class="blockbox" style="'+((i===0||i===3)?'border-left-color:var(--gray)':'')+'">'+s+'</div>';}).join('<div style="text-align:center;color:#c3bdb2">&darr;</div>')+'</div>';}},
+
+ {n:'step 7 · pick the next digit',t:'Scores become probabilities (softmax)',
+  what:'For the current position the model outputs 10 scores, one per digit. <i>Softmax</i> turns them into probabilities that add to 1; the tallest bar is its pick.',
+  why:'Softmax gives a clean &ldquo;how sure am I about each digit?&rdquo; &mdash; the same step studied in the lessons.',
+  math:SOFT,
+  viz:function(){return '<div class="bars" id="probbars"></div>';},
+  enter:function(){var p=[0.02,0.78,0.06,0.03,0.02,0.03,0.02,0.01,0.02,0.01];var h=document.getElementById('probbars');var mx=Math.max.apply(null,p);h.innerHTML=p.map(function(v,i){return '<div class="bar'+(v===mx?' hot':'')+'" style="width:26px;height:0%"><span>'+i+'</span></div>';}).join('');setTimeout(function(){h.querySelectorAll('.bar').forEach(function(b,i){b.style.height=(p[i]*150)+'%'});},60);}},
+
+ {n:'step 8 · generate the answer',t:'Build the sorted list one digit at a time',
+  what:'Feed the six inputs, predict the smallest, append it, predict the next, and so on &mdash; six times. That growing tail is the sorted output.',
+  why:'Each new digit depends on what came before. This is <b>exactly how a chatbot writes</b> a sentence, word by word.',
+  math:"<b>From a vector to an actual digit.</b> After the blocks, each position holds a vector, say [0.65, 0.62]. Multiply it by the output table (one column per digit 0-9) to get 10 scores, run softmax (step 7) to turn them into 10 probabilities, and pick the biggest &mdash; that digit is the prediction. Append it, then repeat for the next number.",
+  viz:function(){return '<div class="cells" id="gencells"></div><div style="margin-top:12px"><button class="act ghost" id="genbtn">&#9654; replay</button></div>';},
+  enter:function(){playGen();}},
+
+ {n:'step 9 · learning',t:'How it actually learns: predicting the next number',
+  what:'The honest mechanism &mdash; and there is <b>no separate answer key</b>. Training data is just sequences of tokens, and at every spot the <b>target is simply the actual next token already in that sequence</b>. We build each training sequence as <b>six numbers, then those same six sorted</b>. So after the inputs, the real next token happens to be the next sorted number. The model only ever learns &ldquo;predict the next token&rdquo; &mdash; it is never told &ldquo;sort&rdquo; or &ldquo;find the smallest.&rdquo;',
+  why:'',
+  math:LEARN,
+  viz:function(){ return '<div style="background:#fbfaf8;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px"><div style="font-size:11px;color:var(--muted);margin-bottom:4px">one training sequence (we build it so the second half is sorted):</div><div class="cells">'+[5,2,8,1,2,0].map(function(d){return '<div class="cell in">'+d+'</div>';}).join('')+'<span class="arrow">|</span>'+[0,1,2,2,5,8].map(function(d){return '<div class="cell out">'+d+'</div>';}).join('')+'</div><div style="font-size:11px;color:var(--muted);margin-top:6px">the model predicts the second half; each target is just the real next number in this same sequence.</div></div>'
+    +'<div style="font-size:13px;color:var(--muted);margin-bottom:6px">the model&#8217;s predicted continuation (red = wrong, green = matches the real next number):</div>'
+    +'<div class="cells" id="predrow" style="margin-bottom:10px"></div>'
+    +'<div id="ordline" style="font-size:15px;font-weight:600;margin-bottom:12px"></div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="act" id="one9">train one iteration</button><button class="act ghost" id="auto9">&#9654; auto-run</button><button class="act ghost" id="reset9">restart</button></div>'
+    +'<div class="why" style="margin-top:18px"><b>Your real questions, answered honestly:</b><br>'
+    +'&bull; <b>Does it know we want it sorted?</b> <b>No.</b> It is never told the rule. It only learns &ldquo;predict the next token.&rdquo; Because <i>every</i> training sequence continues with the sorted numbers, predicting the next token well = producing the sorted list. The intent to sort lives in the <b>data we built</b>, not in any instruction.<br>'
+    +'&bull; <b>How does it know it is wrong?</b> It compares its predicted next number to the <b>actual next number in the sequence</b> (which is fixed in the data). A mismatch is the error &mdash; no separate key needed; the data is its own answer.<br>'
+    +'&bull; <b>How does it keep correcting?</b> Each mismatch nudges the weights; over millions of sequences whose continuations are sorted, it gradually learns to produce sorted continuations.<br>'
+    +'&bull; <b>How does Claude do it?</b> Exactly this, on ordinary text: predict the next word, where the target is just the document&#8217;s own next word &mdash; no answer keys, no task labels. Language (and, for us, sorting) is learned purely from what naturally comes next in the data.</div>'; },
+  enter:function(){ var key=[0,1,2,2,5,8], wrong=[8,5,2,2,1,0], c=[], it=0;
+    function fresh(){ c=[]; for(var i=0;i<6;i++)c.push(Math.random()*0.18); it=0; }
+    function pred(i){ return c[i]>0.6 ? key[i] : wrong[i]; }
+    function render(){ var correct=0;
+      document.getElementById('predrow').innerHTML=key.map(function(k,i){ var p=pred(i), ok=(p===k); if(ok)correct++; return '<div class="cell '+(ok?'out':'in')+'" style="'+(ok?'':'border-color:#c0492f;color:#a3331f')+'">'+p+'</div>'; }).join('');
+      document.getElementById('ordline').innerHTML=(correct===6) ? 'iteration '+it+': the predicted continuation matches the real next numbers &rarr; <span style="color:#1c6b2c"><b>learned &#10003;</b></span>' : 'iteration '+it+': <b>'+correct+' of 6</b> match the real next numbers &mdash; <span style="color:#a3331f">'+(6-correct)+' still wrong (the error)</span>';
+    }
+    function step(){ it++; for(var i=0;i<6;i++){ c[i]=c[i]+0.16*(1-c[i])+(Math.random()-0.35)*0.05; if(c[i]>1)c[i]=1; if(c[i]<0)c[i]=0; } render(); }
+    document.getElementById('one9').onclick=step;
+    document.getElementById('reset9').onclick=function(){fresh();render();};
+    var ab=document.getElementById('auto9');
+    ab.onclick=function(){ if(window.__trainIV){clearInterval(window.__trainIV);window.__trainIV=null;ab.innerHTML='&#9654; auto-run';} else { ab.innerHTML='&#10073;&#10073; pause'; window.__trainIV=setInterval(function(){ var ok=true; for(var i=0;i<6;i++) if(pred(i)!==key[i])ok=false; if(ok){clearInterval(window.__trainIV);window.__trainIV=null;ab.innerHTML='&#9654; auto-run';return;} step(); },450); } };
+    fresh(); render();
+  }},
+
+ {n:'step 10 · asking it to sort',t:'What happens when you type the query (inference)',
+  what:'Two different moments. <b>Training</b> (steps 1&ndash;9) is where the weights change and the ability is built. <b>Inference</b> &mdash; when you actually type &ldquo;sort 5 2 8 1 2 0&rdquo; &mdash; the weights are <b>frozen</b>; the model just reads your prompt and generates the answer one token at a time. No learning happens now.',
+  why:'',
+  viz:function(){ return '<div style="font-size:13px;color:var(--muted);margin-bottom:6px">your prompt (fixed) &mdash; weights are <b>frozen</b>, no learning now:</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px"><div class="cell in">sort</div>'+[5,2,8,1,2,0].map(function(d){return '<div class="cell in">'+d+'</div>';}).join('')+'<span class="arrow">&rarr;</span><span id="genout" style="display:inline-flex;gap:8px"></span></div>'
+    +'<div id="genline" style="font-size:14px;font-weight:600;margin-bottom:12px"></div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="act" id="gen1">generate next number</button><button class="act ghost" id="genauto">&#9654; auto</button><button class="act ghost" id="genreset">restart</button></div>'
+    +'<div class="why" style="margin-top:18px"><b>Training vs. asking it &mdash; the honest difference:</b><br>'
+    +'&bull; <b>During training:</b> the weights <b>change</b> a little after every mistake. That is where the sorting ability is built (steps 1&ndash;9).<br>'
+    +'&bull; <b>When you ask (right now):</b> the weights are <b>frozen</b>. The model only reads your prompt and generates the answer token by token. It is <b>not</b> learning, and it is <b>not</b> running a sort algorithm &mdash; it predicts the next token from patterns baked into its frozen weights.<br><br>'
+    +'<b>And Claude?</b> Same mechanism, far bigger scale. Our Jamna was trained only on sort examples; <b>Claude was trained on enormous amounts of ordinary text</b> and learned what &ldquo;sort&rdquo; means and how numbers order from that text (plus instruction-tuning to follow requests). When you ask Claude to sort, it reads the prompt and generates the answer one token at a time with frozen weights &mdash; <b>predicting, not executing an algorithm</b>. That is exactly why LLMs are reliable on short lists but can slip on long or tricky ones.</div>'; },
+  enter:function(){ var ans=[0,1,2,2,5,8], i=0;
+    var out=document.getElementById('genout'), line=document.getElementById('genline');
+    function render(){ out.innerHTML=ans.slice(0,i).map(function(d){return '<div class="cell out">'+d+'</div>';}).join('')+(i<6?'<div class="cell pend">?</div>':''); line.innerHTML=(i>=6)?'<span style="color:#1c6b2c">done &mdash; generated the sorted list one token at a time; the weights never changed.</span>':'generating number '+(i+1)+' of 6 &mdash; the model predicts the next token: <b>'+ans[i]+'</b>'; }
+    function gen(){ if(i<6){ i++; render(); } }
+    document.getElementById('gen1').onclick=gen;
+    document.getElementById('genreset').onclick=function(){ i=0; render(); };
+    var ab=document.getElementById('genauto');
+    ab.onclick=function(){ if(window.__trainIV){clearInterval(window.__trainIV);window.__trainIV=null;ab.innerHTML='&#9654; auto';} else { ab.innerHTML='&#10073;&#10073; pause'; window.__trainIV=setInterval(function(){ if(i>=6){clearInterval(window.__trainIV);window.__trainIV=null;ab.innerHTML='&#9654; auto';return;} gen(); },520); } };
+    render();
+  }},
+
+ {n:'step 11 · connections',t:'Weights as wires between the digits (the classic picture)',
+  what:'Here is the familiar way to picture any neural net: <b>nodes joined by weighted wires</b>. Think of the digits as nodes; the <b>weights are the wires</b> connecting them to the decision &ldquo;what is the next number?&rdquo;. Pre-training (driven by the sorted examples) sets how thick each wire is.',
+  why:'',
+  viz:function(){ return '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">pre-training data &mdash; lots of sorted examples:</div>'
+    +'<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;font-family:ui-monospace,Menlo,monospace;font-size:13px;color:#5b574f">'
+    +['3 1 2 &rarr; 1 2 3','5 0 4 &rarr; 0 4 5','2 8 1 &rarr; 1 2 8','7 3 3 &rarr; 3 3 7'].map(function(x){return '<span style="background:#f3f1ec;border-radius:6px;padding:3px 9px">'+x+'</span>';}).join('')+'</div>'
+    +'<div id="netbox"></div><div id="netinfo" style="font-size:14px;font-weight:600;margin:8px 0 12px"></div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="act" id="net1">train one step</button><button class="act ghost" id="netauto">&#9654; auto-run</button><button class="act ghost" id="netreset">scramble</button></div>'
+    +'<div class="why" style="margin-top:16px">As the sorted examples stream in, the wire from &ldquo;next number&rdquo; to the <b>smallest</b> digit grows thickest &mdash; so the model outputs the smallest. That is &ldquo;learning the weights.&rdquo;<br><br><b>Honest note:</b> this is a simplified picture. In the real transformer the &ldquo;wires&rdquo; are the numbers inside the weight matrices (Wq, Wk, Wout&hellip;), not single lines between digits &mdash; but the idea, connections tuned by data, is exactly right.</div>'; },
+  enter:function(){ var digits=[5,2,8,1,2,0], t=[0.05,0.10,0.03,0.22,0.10,0.50], w=[], it=0;
+    for(var i=0;i<6;i++)w.push(0.1+Math.random()*0.1);
+    var box=document.getElementById('netbox'), info=document.getElementById('netinfo');
+    var ys=[28,74,120,166,212,258], cx=120, ox=470, oy=143;
+    function norm(){ var sm=w.reduce(function(a,b){return a+b;},0); w=w.map(function(v){return v/sm;}); }
+    function draw(){ var mx=Math.max.apply(null,w), win=w.indexOf(mx);
+      var edges=digits.map(function(d,i){ var sw=(1+w[i]*22).toFixed(1); var col=(i===win)?'#2f9e44':'#9bb4e8'; return '<line x1="'+cx+'" y1="'+ys[i]+'" x2="'+ox+'" y2="'+oy+'" stroke="'+col+'" stroke-width="'+sw+'" stroke-opacity="0.85"/>'; }).join('');
+      var nodes=digits.map(function(d,i){ return '<circle cx="'+cx+'" cy="'+ys[i]+'" r="18" fill="#f3f1ec" stroke="#cfcabf"/><text x="'+cx+'" y="'+(ys[i]+5)+'" text-anchor="middle" font-size="15" fill="#5b574f">'+d+'</text>'; }).join('');
+      var on='<circle cx="'+ox+'" cy="'+oy+'" r="24" fill="#e7f0ff" stroke="#3b5bdb"/><text x="'+ox+'" y="'+(oy-3)+'" text-anchor="middle" font-size="11" fill="#1c4f8f">next</text><text x="'+ox+'" y="'+(oy+12)+'" text-anchor="middle" font-size="11" fill="#1c4f8f">number</text>';
+      box.innerHTML='<svg viewBox="0 0 540 286" style="width:100%;height:auto">'+edges+nodes+on+'</svg>';
+      info.innerHTML=(win===5)?'iteration '+it+': the thickest wire points to <b>0</b> &rarr; <span style="color:#1c6b2c"><b>outputs the smallest &#10003;</b></span>':'iteration '+it+': wires still random &mdash; <span style="color:#a3331f">thickest points to '+digits[win]+', not the smallest</span>';
+    }
+    function step(){ it++; for(var i=0;i<6;i++) w[i]=w[i]+0.2*(t[i]-w[i]); norm(); draw(); }
+    document.getElementById('net1').onclick=step;
+    document.getElementById('netreset').onclick=function(){ for(var i=0;i<6;i++)w[i]=0.1+Math.random()*0.1; it=0; draw(); };
+    var ab=document.getElementById('netauto');
+    ab.onclick=function(){ if(window.__trainIV){clearInterval(window.__trainIV);window.__trainIV=null;ab.innerHTML='&#9654; auto-run';} else { ab.innerHTML='&#10073;&#10073; pause'; window.__trainIV=setInterval(function(){ var mx=Math.max.apply(null,w); if(w.indexOf(mx)===5 && it>4){clearInterval(window.__trainIV);window.__trainIV=null;ab.innerHTML='&#9654; auto-run';return;} step(); },420); } };
+    draw();
+  }},
+
+ {n:"messy neural net",t:"Buildings & weights: fuzzy → trained → sort the list",
+  what:"<b>10 buildings (digits 0&ndash;9)</b> wired together; each wire is a real <b>weight</b>. <b>Phase 1</b> &mdash; before training the weights are <b>fuzzy / random</b>, no order. <b>Phase 2</b> &mdash; press <b>auto-train</b> and the weights sort themselves (each digit&#8217;s strongest wire learns to point to the next). <b>Phase 3</b> &mdash; press <b>sort the list</b>: a softmax walk that emits the digits of <b>5 2 8 1 2 0</b> in order. Click any building for its math.",
+  why:"",
+  viz:function(){ return '<div id="mnet"></div><div id="mline" style="font-size:14px;font-weight:600;margin:10px 0;min-height:22px"></div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="act" id="mauto">&#9654; auto-train</button><button class="act ghost" id="mtrain">train 1 step</button><button class="act ghost" id="mscr">scramble (fuzzy)</button><button class="act" id="msort" style="background:#e8920c;border-color:#9a5a00">&#128161; sort 5 2 8 1 2 0 &rarr;</button></div><div id="mmath" style="margin-top:14px;font-size:13px;font-family:ui-monospace,Menlo,monospace;background:#fbfaf8;border:1px solid var(--line);border-radius:10px;padding:12px 14px;line-height:1.85"></div><div class="why" style="margin-top:10px">Blue-dotted buildings are the digits in the list. The torchlight at each building = softmax of its weights; the brightest wire is the next number. We emit a building when the walk reaches it and it is in the list &mdash; that yields the sorted list.</div>'; },
+  enter:function(){
+    var N=10, cx=300, cy=265, R=210, pos=[]; for(var i=0;i<N;i++){var a=(-90+i*36)*Math.PI/180; pos.push([Math.round(cx+R*Math.cos(a)),Math.round(cy+R*Math.sin(a))]);}
+    var LIST=[5,2,8,1,2,0], cnt=[0,0,0,0,0,0,0,0,0,0], present=[]; for(var i=0;i<N;i++)present.push(false);
+    for(var k=0;k<LIST.length;k++){cnt[LIST[k]]++;present[LIST[k]]=true;}
+    var W=[]; for(var i=0;i<N;i++){var r=[];for(var j=0;j<N;j++)r.push(Math.random()*0.6-0.3);W.push(r);}
+    var it=0, lr=0.6, focus=2, sortCur=null, sortOut=[];
+    var net=document.getElementById("mnet"), line=document.getElementById("mline"), mmath=document.getElementById("mmath");
+    function sm(v){var mx=Math.max.apply(null,v);var e=v.map(function(x){return Math.exp(x-mx);});var t=e.reduce(function(a,b){return a+b;},0);return e.map(function(x){return x/t;});}
+    function amax(v){var mi=0;for(var k=1;k<v.length;k++)if(v[k]>v[mi])mi=k;return mi;}
+    function trainStep(){ for(var i=0;i<N-1;i++){var p=sm(W[i]);for(var j=0;j<N;j++){var g=p[j]-(j===i+1?1:0);W[i][j]-=lr*g;}} it++; }
+    function lossv(){var L=0;for(var i=0;i<N-1;i++){var p=sm(W[i]);L+=-Math.log(Math.max(p[i+1],1e-9));}return L/(N-1);}
+    function cc(){var c=0;for(var i=0;i<N-1;i++){if(amax(W[i])===i+1)c++;}return c;}
+    function node(i,fill,stroke,tc){var p=pos[i];var dot=present[i]?'<circle cx="'+(p[0]+16)+'" cy="'+(p[1]-16)+'" r="5" fill="#1c7ed6"/>':'';return '<circle cx="'+p[0]+'" cy="'+p[1]+'" r="22" fill="'+fill+'" stroke="'+stroke+'" stroke-width="2"/><text x="'+p[0]+'" y="'+(p[1]+6)+'" text-anchor="middle" font-size="16" font-weight="600" fill="'+tc+'">'+i+'</text>'+dot;}
+    function faint(){var f="";for(var i=0;i<N;i++)for(var j=i+1;j<N;j++)f+='<line x1="'+pos[i][0]+'" y1="'+pos[i][1]+'" x2="'+pos[j][0]+'" y2="'+pos[j][1]+'" stroke="#ece9e2" stroke-width="1"/>';return f;}
+    function updateMath(){ var t=focus, tn=t+1, w=W[t];
+      var ex=w.map(function(x){return Math.exp(x);}); var Z=ex.reduce(function(a,b){return a+b;},0); var p=ex.map(function(x){return x/Z;});
+      var err=-Math.log(Math.max(p[tn],1e-9));
+      var rows="";
+      for(var j=0;j<10;j++){ var hot=(j===tn);
+        rows+='<tr style="'+(hot?"background:#eafaef;font-weight:600;":"")+'">'
+          +'<td style="padding:3px 9px;border-bottom:1px solid #eee;text-align:center">'+j+(hot?" &larr;":"")+'</td>'
+          +'<td style="padding:3px 9px;border-bottom:1px solid #eee;text-align:right">'+w[j].toFixed(2)+'</td>'
+          +'<td style="padding:3px 9px;border-bottom:1px solid #eee;text-align:right">'+ex[j].toFixed(2)+'</td>'
+          +'<td style="padding:3px 9px;border-bottom:1px solid #eee;text-align:right">'+Math.round(p[j]*100)+'%</td></tr>';
+      }
+      var table='<table style="border-collapse:collapse;font-family:ui-monospace,monospace;font-size:12.5px;margin:8px 0">'
+        +'<tr style="color:#6c6760;border-bottom:2px solid #ddd"><th style="padding:4px 9px">digit</th><th style="padding:4px 9px;text-align:right">weight</th><th style="padding:4px 9px;text-align:right">e^(weight)</th><th style="padding:4px 9px;text-align:right">chance</th></tr>'
+        +rows
+        +'<tr style="border-top:2px solid #ddd;font-weight:600"><td style="padding:4px 9px;text-align:center">total</td><td></td><td style="padding:4px 9px;text-align:right">'+Z.toFixed(2)+'</td><td style="padding:4px 9px;text-align:right">100%</td></tr></table>';
+      mmath.innerHTML='<b>Building '+t+' &rarr; the next number should be '+tn+'</b> (because '+tn+' comes right after '+t+' in order).<br>'
+        +'Softmax turns each wire&#8217;s <b>weight</b> (these started random) into a <b>chance</b>, using &nbsp;chance = e^(weight) &divide; total of the e^(weight) column:'
+        +table
+        +'<div style="line-height:1.75">The correct digit <b>'+tn+'</b> gets chance <b>'+Math.round(p[tn]*100)+'%</b> &nbsp;(= '+ex[tn].toFixed(2)+' &divide; '+Z.toFixed(2)+' = '+p[tn].toFixed(2)+').<br>'
+        +'<b>error</b> (how wrong) = &minus;ln('+p[tn].toFixed(2)+') = <b>'+err.toFixed(2)+'</b> &nbsp; &mdash; a 100% chance would give 0 error.<br>'
+        +'<b>fix</b>: gradient = chance &minus; 1 = '+p[tn].toFixed(2)+' &minus; 1 = <b>'+(p[tn]-1).toFixed(2)+'</b> &rarr; make the '+t+'&rarr;'+tn+' weight bigger, so the chance of '+tn+' rises next round.</div>';
+    }
+    function drawTrain(){ sortCur=null;
+      var ov="";for(var i=0;i<N-1;i++){var pp=sm(W[i]);var jj=amax(pp);var ok2=(jj===i+1);ov+='<line x1="'+pos[i][0]+'" y1="'+pos[i][1]+'" x2="'+pos[jj][0]+'" y2="'+pos[jj][1]+'" stroke="'+(ok2?"#bfe3c8":"#f0c9bf")+'" stroke-width="2" stroke-opacity="0.5"/>';}
+      var f=focus, pf=sm(W[f]), wires="", lab="";
+      for(var j=0;j<N;j++){ if(j===f)continue; var ok=(j===f+1);
+        wires+='<line x1="'+pos[f][0]+'" y1="'+pos[f][1]+'" x2="'+pos[j][0]+'" y2="'+pos[j][1]+'" stroke="'+(ok?"#2f9e44":"#e8920c")+'" stroke-width="'+(1+pf[j]*12).toFixed(1)+'" stroke-opacity="'+(0.25+pf[j]*0.7).toFixed(2)+'"/>';
+        var lx=Math.round(pos[f][0]+0.6*(pos[j][0]-pos[f][0])),ly=Math.round(pos[f][1]+0.6*(pos[j][1]-pos[f][1]));
+        lab+='<rect x="'+(lx-15)+'" y="'+(ly-8)+'" width="30" height="15" rx="3" fill="#fff" fill-opacity="0.92"/><text x="'+lx+'" y="'+(ly+3)+'" text-anchor="middle" font-size="9" fill="'+(ok?"#1c6b2c":"#9a5a00")+'">'+W[f][j].toFixed(2)+'</text>';}
+      var nodes="";for(var i=0;i<N;i++){var fc=(i===f)?"#fde9c8":((i===f+1)?"#eafaef":"#f3f1ec");var st=(i===f)?"#e8920c":((i===f+1)?"#2f9e44":"#cfcabf");nodes+=node(i,fc,st,"#5b574f");}
+      net.innerHTML='<svg viewBox="0 0 600 540" style="width:100%;height:auto">'+faint()+ov+wires+lab+nodes+'</svg>';
+      var c=cc();
+      line.innerHTML=(it===0)?'<span style="color:#a3331f">Phase 1 &mdash; BEFORE training: weights are fuzzy &amp; random. Watch building '+f+'&#8217;s wire numbers adjust as you train.</span>':'Phase 2 &mdash; iteration '+it+', error '+lossv().toFixed(3)+', <b>'+c+' of 9</b> wires sorted. Building '+f+'&#8217;s weights are adjusting'+(c===9?' &mdash; <span style="color:#1c6b2c">&#10003; sorted</span>':'')+'. (click another building to follow it)';
+      updateMath();
+    }
+    function drawSort(cur){
+      var p=sm(W[cur]); var nx=amax(p);
+      var glow='<circle cx="'+pos[cur][0]+'" cy="'+pos[cur][1]+'" r="40" fill="#f6c560" fill-opacity="0.28"/>';
+      var beams="",lab="";
+      for(var j=0;j<N;j++){if(j===cur)continue;var hot=(j===nx);beams+='<line x1="'+pos[cur][0]+'" y1="'+pos[cur][1]+'" x2="'+pos[j][0]+'" y2="'+pos[j][1]+'" stroke="'+(hot?"#2f9e44":"#e8920c")+'" stroke-width="'+(1+p[j]*13).toFixed(1)+'" stroke-opacity="'+(0.12+p[j]*0.88).toFixed(2)+'"/>';
+        var lx=Math.round(pos[cur][0]+0.64*(pos[j][0]-pos[cur][0])),ly=Math.round(pos[cur][1]+0.64*(pos[j][1]-pos[cur][1]));
+        lab+='<rect x="'+(lx-14)+'" y="'+(ly-8)+'" width="28" height="15" rx="3" fill="#fff" fill-opacity="0.9"/><text x="'+lx+'" y="'+(ly+3)+'" text-anchor="middle" font-size="9" fill="'+(hot?"#1c6b2c":"#9a5a00")+'">'+p[j].toFixed(2)+'</text>';}
+      var nodes="";for(var i=0;i<N;i++){if(i===cur)nodes+=node(i,"#f6c560","#9a5a00","#3a2400");else if(i===nx)nodes+=node(i,"#eafaef","#2f9e44","#1c6b2c");else nodes+=node(i,"#f3f1ec","#cfcabf","#5b574f");}
+      net.innerHTML='<svg viewBox="0 0 600 540" style="width:100%;height:auto">'+faint()+glow+beams+lab+nodes+'</svg>';
+      var inlist = present[cur];
+      line.innerHTML='Phase 3 &mdash; sorting <b>5 2 8 1 2 0</b>. At building <b>'+cur+'</b> ('+(inlist?'<span style="color:#1c7ed6">in the list &rarr; emit it</span>':'not in list &rarr; skip')+'). softmax brightest wire &rarr; next building <b>'+nx+'</b>.<br><b>sorted so far: '+(sortOut.length?sortOut.join(" "):"&mdash;")+'</b>'+(cur>=9?' <span style="color:#1c6b2c">&#10003; done</span>':'');
+      mmath.innerHTML='softmax(building '+cur+') = ['+p.map(function(x){return x.toFixed(2);}).join(', ')+'] &rarr; brightest = <b>'+nx+'</b>. Press sort again to step the torch.';
+    }
+    function emit(d){ if(cnt[d]>0){ for(var k=0;k<cnt[d];k++) sortOut.push(d); } }
+    net.onclick=function(e){var svg=net.querySelector("svg");if(!svg)return;var rc=svg.getBoundingClientRect();var mx=(e.clientX-rc.left)/rc.width*600,my=(e.clientY-rc.top)/rc.height*540;for(var i=0;i<N-1;i++){var dx=mx-pos[i][0],dy=my-pos[i][1];if(dx*dx+dy*dy<26*26){focus=i;drawTrain();break;}}};
+    document.getElementById("mtrain").onclick=function(){trainStep();drawTrain();};
+    document.getElementById("mscr").onclick=function(){for(var i=0;i<N;i++)for(var j=0;j<N;j++)W[i][j]=Math.random()*0.6-0.3;it=0;drawTrain();};
+    document.getElementById("mauto").onclick=function(){var bb=this;if(window.__trainIV){clearInterval(window.__trainIV);window.__trainIV=null;bb.innerHTML="&#9654; auto-train";}else{bb.innerHTML="&#10073;&#10073; pause";window.__trainIV=setInterval(function(){if(cc()===9&&it>5){clearInterval(window.__trainIV);window.__trainIV=null;bb.innerHTML="&#9654; auto-train";return;}trainStep();drawTrain();},520);}};
+    document.getElementById("msort").onclick=function(){ if(window.__trainIV){clearInterval(window.__trainIV);window.__trainIV=null;document.getElementById("mauto").innerHTML="&#9654; auto-train";}
+      if(sortCur===null||sortCur>=9){ sortCur=0; sortOut=[]; emit(0); }
+      else { var nx=amax(sm(W[sortCur])); sortCur=(nx>sortCur)?nx:Math.min(9,sortCur+1); emit(sortCur); }
+      drawSort(sortCur); };
+    drawTrain();
+  }},
+ {n:"deep dive",t:"Deep dive \u2014 one real forward pass",what:"",viz:function(){return "Now the real thing, with actual numbers from a tiny transformer we trained (digits 0&ndash;9, 4-number vectors). We follow the input <b>5 2 8 1 2 0</b> and the position that must predict the first sorted digit. Each slide is a clean table; every column is named.";}},
+ {n:"deep dive",t:"Fixed embeddings (each digit&#8217;s home numbers)",what:"",viz:function(){return "Before anything, each digit is looked up in a table to get its 4 numbers. Same every time the digit appears. (Rows used by our list are 0,1,2,5,8.)<table style=\"border-collapse:collapse;font-family:ui-monospace,monospace;font-size:12px;margin:8px 0\"><tr style=\"border-bottom:2px solid #ddd\"><th style=\"padding:4px 9px;text-align:left;color:#6c6760\">digit</th><th style=\"padding:4px 9px;text-align:left;color:#6c6760\">its 4 numbers (the embedding)</th></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">0</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-0.02, 0.04, 0.60, -0.21]</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">1</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[0.03, 0.00, -0.27, 0.04]</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">2</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[0.17, 0.25, -0.39, -0.21]</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">3</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-0.41, 0.31, 0.19, -0.46]</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">4</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[0.48, 0.47, 0.15, 0.12]</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">5</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-0.29, -0.52, 0.01, -0.44]</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">6</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-0.31, -0.26, -0.47, -0.04]</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">7</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-0.06, 0.34, 0.02, 0.14]</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">8</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[0.02, 0.15, -0.04, -0.23]</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">9</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[0.50, 0.50, 0.34, 0.21]</td></tr></table>";}},
+ {n:"deep dive",t:"Make a Query, Key, Value for each position",what:"",viz:function(){return "Each position&#8217;s vector is multiplied by 3 learned matrices to make a <b>Query</b> (what I am looking for), a <b>Key</b> (what I offer) and a <b>Value</b> (my content).<table style=\"border-collapse:collapse;font-family:ui-monospace,monospace;font-size:12px;margin:8px 0\"><tr style=\"border-bottom:2px solid #ddd\"><th style=\"padding:4px 9px;text-align:left;color:#6c6760\">pos</th><th style=\"padding:4px 9px;text-align:left;color:#6c6760\">digit</th><th style=\"padding:4px 9px;text-align:left;color:#6c6760\">Query</th><th style=\"padding:4px 9px;text-align:left;color:#6c6760\">Key</th><th style=\"padding:4px 9px;text-align:left;color:#6c6760\">Value</th></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">0</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">5</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-0.50, 0.50, -0.45, 0.24]</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-0.28, 1.13, -0.59, 0.27]</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-0.61, 0.29, -0.79, 0.02]</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">1</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">2</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[0.08, -0.45, -0.01, -0.36]</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[0.38, 0.53, 0.12, 1.24]</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-1.40, -0.27, -0.08, 0.72]</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">2</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">8</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[0.57, -0.79, 0.37, -0.41]</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[0.32, -0.12, 0.62, 1.18]</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-1.18, -0.49, 0.55, 0.76]</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">3</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">1</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-0.72, 0.13, -0.53, -0.28]</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[0.56, 0.94, -0.64, 0.63]</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-0.85, 0.14, -0.90, 0.31]</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">4</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">2</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[1.08, -0.30, 0.61, 0.39]</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-1.00, -0.14, 0.87, 0.47]</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-0.56, -0.33, 0.96, 0.26]</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">5</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">0</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-0.16, 0.82, -0.23, 0.75]</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[-1.06, 0.71, -0.38, -0.60]</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:left\">[0.33, 0.41, -0.39, -0.50]</td></tr></table>";}},
+ {n:"deep dive",t:"Torchlight: match the Query against every Key",what:"",viz:function(){return "The predicting position dots its Query with each Key (Q&middot;K = q0&times;k0+q1&times;k1+q2&times;k2+q3&times;k3), then divides by &radic;4 = 2. Bigger = better match.<table style=\"border-collapse:collapse;font-family:ui-monospace,monospace;font-size:12px;margin:8px 0\"><tr style=\"border-bottom:2px solid #ddd\"><th style=\"padding:4px 9px;text-align:right;color:#6c6760\">key pos</th><th style=\"padding:4px 9px;text-align:right;color:#6c6760\">digit</th><th style=\"padding:4px 9px;text-align:right;color:#6c6760\">Q&middot;K</th><th style=\"padding:4px 9px;text-align:right;color:#6c6760\">&divide; 2 = score</th></tr><tr style=\"background:#eafaef;font-weight:600;\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">5</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">1.30</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.65</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">1</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">2</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">1.27</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.64</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">2</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">8</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.59</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.29</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">3</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">1</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">1.30</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.65</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">4</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">2</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.19</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.10</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">5</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.38</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.19</td></tr></table>";}},
+ {n:"deep dive",t:"Softmax: turn the scores into focus weights",what:"",viz:function(){return "Same softmax as before: e^(score), then divide by the total so the weights add to 100%. These weights say how much to listen to each position.<table style=\"border-collapse:collapse;font-family:ui-monospace,monospace;font-size:12px;margin:8px 0\"><tr style=\"border-bottom:2px solid #ddd\"><th style=\"padding:4px 9px;text-align:right;color:#6c6760\">pos</th><th style=\"padding:4px 9px;text-align:right;color:#6c6760\">digit</th><th style=\"padding:4px 9px;text-align:right;color:#6c6760\">score</th><th style=\"padding:4px 9px;text-align:right;color:#6c6760\">e^score</th><th style=\"padding:4px 9px;text-align:right;color:#6c6760\">weight</th></tr><tr style=\"background:#eafaef;font-weight:600;\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">5</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.65</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">1.92</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">20%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">1</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">2</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.64</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">1.89</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">20%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">2</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">8</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.29</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">1.34</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">14%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">3</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">1</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.65</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">1.92</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">20%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">4</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">2</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.10</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">1.10</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">12%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">5</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0.19</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">1.21</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">13%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">total</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\"></td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\"></td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">9.37</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">100%</td></tr></table>";}},
+ {n:"deep dive",t:"Blend the Values by those weights",what:"",viz:function(){return "The output is each Value multiplied by its weight, all added up &mdash; a weighted average. This is the position&#8217;s new <b>context-aware</b> vector:<br><br><span style=\"font-family:ui-monospace,monospace\">context = [-0.57, -0.51, 1.65, -0.66]</span><br><br>It mixes in the whole list, unlike the fixed embedding it started from.";}},
+ {n:"deep dive",t:"Score all 10 digits, pick the biggest",what:"",viz:function(){return "Finally the context vector is turned into one score per digit, and softmax makes them chances. The biggest chance is the predicted next digit.<table style=\"border-collapse:collapse;font-family:ui-monospace,monospace;font-size:12px;margin:8px 0\"><tr style=\"border-bottom:2px solid #ddd\"><th style=\"padding:4px 9px;text-align:right;color:#6c6760\">digit</th><th style=\"padding:4px 9px;text-align:right;color:#6c6760\">score</th><th style=\"padding:4px 9px;text-align:right;color:#6c6760\">chance</th></tr><tr style=\"background:#eafaef;font-weight:600;\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">6.80</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">99%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">1</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">-0.41</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">2</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">-0.20</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">3</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">-0.32</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">4</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">-0.75</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">5</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">-1.44</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">6</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">-0.94</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">7</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">-0.04</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">8</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">-0.49</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0%</td></tr><tr style=\"\"><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">9</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">-0.26</td><td style=\"padding:3px 9px;border-bottom:1px solid #eee;text-align:right\">0%</td></tr></table>";}},
+ {n:"deep dive",t:"Same as Claude",what:"",viz:function(){return "This whole chain &mdash; lookup &rarr; Query/Key/Value &rarr; match &rarr; softmax &rarr; blend &rarr; score &rarr; pick &mdash; is exactly what Claude does for each next word. Claude just uses thousands of numbers per token, dozens of layers and heads, and word-pieces instead of digits. The machinery on these slides is the real machinery, shrunk small enough to read.";}},
+ {n:'recap',t:'Where each idea lives in the code',
+  what:'That is the whole engine. Open <code>Jamna.java</code> &mdash; the call hierarchy at the top mirrors this walkthrough.',
+  why:'',
+  viz:function(){var rows=[['digit name tags','embed / tokEmb'],['position','posEmb'],['attention','Head.forward'],['many heads','MultiHead'],['refine + shortcut','Block.forward'],['softmax','T.softmaxRows'],['generate the answer','sortWithModel'],['learning / gradients','train + backprop + adamStep']];return '<table><tr><th>idea</th><th>in Jamna.java</th></tr>'+rows.map(function(r){return '<tr><td>'+r[0]+'</td><td><code>'+r[1]+'</code></td></tr>';}).join('')+'</table>';}}
+];
+
+var cur=0, autoTimer=null;
+var stage=document.getElementById('stage'), dots=document.getElementById('dots'), count=document.getElementById('count');
+function render(){
+  if(window.__trainIV){clearInterval(window.__trainIV);window.__trainIV=null;}
+  var s=steps[cur];
+  stage.innerHTML='<span class="num">'+s.n+'</span><h2>'+s.t+'</h2>'
+    +'<div class="what">'+s.what+'</div>'+(s.why?'<div class="why">'+s.why+'</div>':'')
+    +'<div class="viz">'+s.viz()+'</div>'
+    +(s.math?'<details class="mathbox"><summary>Show the math &amp; a worked example</summary><div class="mathin">'+s.math+'</div></details>':'');
+  if(s.enter) s.enter();
+  count.textContent='step '+(cur+1)+' of '+steps.length;
+  dots.innerHTML=steps.map(function(_,i){return '<span class="dot'+(i===cur?' on':'')+'" data-i="'+i+'"></span>';}).join('');
+  dots.querySelectorAll('.dot').forEach(function(d){d.onclick=function(){cur=+d.dataset.i;render();};});
+  document.getElementById('prev').disabled=(cur===0);
+  document.getElementById('next').disabled=(cur===steps.length-1);
+}
+function playGen(){
+  var host=document.getElementById('gencells'); if(!host)return;
+  host.innerHTML=inp.map(function(v){return '<div class="cell in">'+v+'</div>';}).join('')+srt.map(function(v){return '<div class="cell pend" data-v="'+v+'">?</div>';}).join('');
+  var cells=host.querySelectorAll('.cell'); var i=0;
+  var iv=setInterval(function(){ if(i>=6){clearInterval(iv);return;} var c=cells[6+i]; c.classList.remove('pend'); c.classList.add('live'); c.textContent=c.dataset.v; setTimeout(function(){c.classList.remove('live');c.classList.add('out');},380); i++; },560);
+  var b=document.getElementById('genbtn'); if(b)b.onclick=playGen;
+}
+function startLearn(){
+  var tgt=[0.21,-0.40,0.70,-0.15,0.33,0.50], lr=0.10, foc=2;
+  var w=tgt.map(function(){return Math.random()*1.2-0.6;});
+  var step=0, hist=[], maxErr=1;
+  var wrow=document.getElementById('wrow'), urule=document.getElementById('urule'), ez=document.getElementById('ez'), sz=document.getElementById('sz');
+  var phEls=[0,1,2,3].map(function(k){return document.getElementById('ph'+k);});
+  var c=document.getElementById('lcv'), x=c.getContext('2d');
+  function err(){var e=0;for(var i=0;i<6;i++){var d=w[i]-tgt[i];e+=d*d;}return e;}
+  function renderW(){ wrow.innerHTML=w.map(function(v,i){var on=(i===foc);var col=v>=0?'#1c6b2c':'#a3331f';return '<div style="text-align:center"><div class="vbox" style="min-width:58px;height:32px;color:'+col+';'+(on?'border-color:var(--blue);background:#e7f0ff':'')+'">'+v.toFixed(2)+'</div><div style="font-size:11px;color:#b3aea4;margin-top:3px">knob '+(i+1)+' of 48</div></div>';}).join(''); }
+  function draw(){ x.clearRect(0,0,760,140); x.strokeStyle='#e7e3dc'; x.beginPath(); x.moveTo(38,8); x.lineTo(38,118); x.lineTo(754,118); x.stroke(); x.fillStyle='#9b958c'; x.font='12px sans-serif'; x.fillText('error',2,16); x.fillText('steps',702,134); if(hist.length>1){x.strokeStyle='#3b5bdb';x.lineWidth=2.5;x.beginPath();for(var i=0;i<hist.length;i++){var t=i/Math.max(hist.length-1,1);var px=38+t*716;var py=8+(1-Math.min(hist[i]/maxErr,1))*110;i===0?x.moveTo(px,py):x.lineTo(px,py);}x.stroke();} }
+  function phases(cb){var k=0;phEls.forEach(function(e){if(e)e.classList.remove('on')});var iv=setInterval(function(){if(k>0&&phEls[k-1])phEls[k-1].classList.remove('on');if(k<4){if(phEls[k])phEls[k].classList.add('on');k++;}else{clearInterval(iv);if(cb)cb();}},150);}
+  function oneStep(anim){ step++; var old=w[foc], g=(w[foc]-tgt[foc]); for(var i=0;i<6;i++){var gi=(w[i]-tgt[i])+(Math.random()-0.5)*0.03;w[i]=w[i]-lr*gi;} var e=err(); hist.push(e);
+    function paint(){renderW();ez.textContent=e.toFixed(3);sz.textContent=step;urule.innerHTML='<b>one knob&#8217;s update:</b> new = old &minus; rate &times; gradient = '+old.toFixed(2)+' &minus; 0.10&times;('+g.toFixed(2)+') = <b>'+w[foc].toFixed(2)+'</b>';draw();}
+    if(anim)phases(paint); else paint(); }
+  function reset(){ w=tgt.map(function(){return Math.random()*1.2-0.6;}); step=0; hist=[err()]; maxErr=hist[0]; ez.textContent=hist[0].toFixed(3); sz.textContent=0; urule.innerHTML='press <b>train one step</b> to begin'; renderW(); draw(); }
+  var one=document.getElementById('one'); if(one)one.onclick=function(){oneStep(true);};
+  var rs=document.getElementById('reset'); if(rs)rs.onclick=reset;
+  var ab=document.getElementById('autot'); if(ab)ab.onclick=function(){ if(window.__trainIV){clearInterval(window.__trainIV);window.__trainIV=null;ab.innerHTML='&#9654; auto-train';} else { ab.innerHTML='&#10073;&#10073; pause'; window.__trainIV=setInterval(function(){ if(step>=90){clearInterval(window.__trainIV);window.__trainIV=null;ab.innerHTML='&#9654; auto-train';return;} oneStep(false);},120);} };
+  reset();
+}
+function go(d){cur=Math.max(0,Math.min(steps.length-1,cur+d));render();}
+document.getElementById('next').onclick=function(){go(1);};
+document.getElementById('prev').onclick=function(){go(-1);};
+document.addEventListener('keydown',function(e){if(e.key==='ArrowRight')go(1);if(e.key==='ArrowLeft')go(-1);});
+var autoBtn=document.getElementById('auto');
+autoBtn.onclick=function(){ if(autoTimer){clearInterval(autoTimer);autoTimer=null;autoBtn.innerHTML='&#9654; Auto-play';} else { autoBtn.innerHTML='&#10073;&#10073; Pause'; autoTimer=setInterval(function(){ if(cur<steps.length-1)go(1); else {clearInterval(autoTimer);autoTimer=null;autoBtn.innerHTML='&#9654; Auto-play';} },5200);} };
+render();
+</script>
+</body>
+</html>
